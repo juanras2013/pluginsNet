@@ -1,7 +1,8 @@
 /**
- * GravityDOM.js v1.0.1
+ * GravityDOM.js v1.0.2
  * Plugin experimental que aplica físicas de gravedad y rebote a elementos HTML.
  * Cero dependencias externas. Motor matemático nativo. Corriendo siempre sin restricciones.
+ * Parcheado contra la selección y arrastre nativo de texto del navegador.
  */
 (function (window, document) {
     'use strict';
@@ -18,8 +19,6 @@
             this.activeDragItem = null;
             this.mouse = { x: 0, y: 0, lastX: 0, lastY: 0, vx: 0, vy: 0 };
 
-            // CORREGIDO: Se eliminó la restricción de gama baja para que corra siempre
-
             this.scanItems();
             this.setupEvents();
             this.loop();
@@ -28,10 +27,16 @@
         scanItems: function () {
             const elements = document.querySelectorAll('.gravity-item');
             elements.forEach((el, index) => {
-                // Forzar posición absoluta para poder moverlos por coordenadas libres
+                // Forzar posición absoluta y deshabilitar selección
                 el.style.position = 'fixed';
                 el.style.cursor = 'grab';
                 el.style.userSelect = 'none';
+                el.style.webkitUserSelect = 'none';
+                el.style.mozUserSelect = 'none';
+                el.style.msUserSelect = 'none';
+
+                // 🚨 PARCHE CRÍTICO: Evita que el navegador intente arrastrar el texto de forma nativa
+                el.addEventListener('dragstart', (e) => e.preventDefault());
 
                 const rect = el.getBoundingClientRect();
 
@@ -41,27 +46,24 @@
                     y: rect.top,
                     width: rect.width,
                     height: rect.height,
-                    vx: (Math.random() - 0.5) * 10, // Velocidad inicial X aleatoria
-                    vy: (Math.random() - 0.5) * 10, // Velocidad inicial Y aleatoria
+                    vx: (Math.random() - 0.5) * 10,
+                    vy: (Math.random() - 0.5) * 10,
                     isDragging: false
                 });
 
-                // Evento interno para iniciar el arrastre con el mouse o dedo
+                // Eventos de interacción física
                 el.addEventListener('mousedown', (e) => this.startDrag(index, e));
                 el.addEventListener('touchstart', (e) => this.startDrag(index, e.touches[0]), { passive: true });
             });
         },
 
         setupEvents: function () {
-            // Seguimiento global del movimiento del mouse
             window.addEventListener('mousemove', (e) => this.handleMove(e));
             window.addEventListener('touchmove', (e) => this.handleMove(e.touches[0]), { passive: true });
 
-            // Soltar el elemento
             window.addEventListener('mouseup', () => this.stopDrag());
             window.addEventListener('touchend', () => this.stopDrag());
 
-            // Recalcular dimensiones si la pantalla cambia de tamaño
             window.addEventListener('resize', () => {
                 this.items.forEach(item => {
                     const rect = item.el.getBoundingClientRect();
@@ -72,6 +74,9 @@
         },
 
         startDrag: function (index, e) {
+            // Cancelar selección si el mouse se desliza rápido fuera del elemento
+            e.preventDefault?.(); 
+
             this.activeDragItem = this.items[index];
             this.activeDragItem.isDragging = true;
             this.activeDragItem.el.style.cursor = 'grabbing';
@@ -88,7 +93,6 @@
             this.mouse.x = e.clientX;
             this.mouse.y = e.clientY;
 
-            // Calcular velocidad del cursor para transferir inercia al lanzar el objeto
             this.mouse.vx = this.mouse.x - this.mouse.lastX;
             this.mouse.vy = this.mouse.y - this.mouse.lastY;
 
@@ -105,7 +109,6 @@
             if (this.activeDragItem) {
                 this.activeDragItem.isDragging = false;
                 this.activeDragItem.el.style.cursor = 'grab';
-                // Le pasamos la velocidad del mouse al soltarlo (Efecto de lanzamiento)
                 this.activeDragItem.vx = this.mouse.vx * 0.8;
                 this.activeDragItem.vy = this.mouse.vy * 0.8;
                 this.activeDragItem = null;
@@ -120,41 +123,32 @@
                 let p = this.items[i];
 
                 if (!p.isDragging) {
-                    // Aplicar gravedad y fricción del aire
                     p.vy += this.settings.gravity;
                     p.vx *= this.settings.friction;
                     p.vy *= this.settings.friction;
 
-                    // Actualizar posiciones físicas
                     p.x += p.vx;
                     p.y += p.vy;
 
-                    // --- COLISIONES CON LOS BORDES DE LA PANTALLA ---
-                    // Suelo (Abajo)
                     if (p.y + p.height > screenH) {
                         p.y = screenH - p.height;
                         p.vy = -p.vy * this.settings.bounce;
-                        // Fricción extra con el suelo al deslizarse
                         p.vx *= 0.95; 
                     }
-                    // Techo (Arriba)
                     if (p.y < 0) {
                         p.y = 0;
                         p.vy = -p.vy * this.settings.bounce;
                     }
-                    // Pared Derecha
                     if (p.x + p.width > screenW) {
                         p.x = screenW - p.width;
                         p.vx = -p.vx * this.settings.bounce;
                     }
-                    // Pared Izquierda
                     if (p.x < 0) {
                         p.x = 0;
                         p.vx = -p.vx * this.settings.bounce;
                     }
                 }
 
-                // Renderizar los cambios matemáticos directamente en el estilo visual CSS del elemento
                 p.el.style.transform = `translate3d(${p.x}px, ${p.y}px, 0px)`;
             }
 
